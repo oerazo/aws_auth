@@ -15,24 +15,24 @@ As this solution has been built using bash it requires a couple of components so
 
 ## How to use
 
-- Set the required environtment variables the script needs to work:
+- Set the required environment variables the script needs to work:
 
-  IDPHOST = (mandatory) this is the adfs endpoint
-
-  ```
-  IDPHOST=youridphost.com
-  ```
-
-  IPDOMAIN = (mandatory) The AD domain used by ADFS
+  idpHost = (mandatory) this is the adfs endpoint
 
   ```
-  IPDOMAIN=yourADDomain
+  idpHost=youridphost.com
   ```
 
-  DEFAULT_REGION = (Optional), By default it will use ap-southeast-2 but you can change it to your desired region
+  idpDomain = (mandatory) The AD domain used by ADFS
 
   ```
-  DEFAULT_REGION=us-east-1
+  idpDomain=yourADDomain
+  ```
+
+  defaultRegion = (Optional), By default it will use ap-southeast-2 but you can change it to your desired region
+
+  ```
+  defaultRegion=us-east-1
   ```
 
 - Clone the repository, source the bash file and execute the main funciton:
@@ -46,12 +46,17 @@ As this solution has been built using bash it requires a couple of components so
 
   Follow the prompts...
 
-### If you want to source the script permanently
+### If you want to source the script permanently and set the variables
 Add  **source <absolutepath>/aws_auth.sh**
-into your *~/.bash_profile* file then you would just need to run **aws_auth**
+into your *~/.bash_profile* file then you would just need to run **aws_auth**, this is an example .bash_profile content :
+
+```
+idpHost=adfs.domain.com.au
+idpDomain=exampledomain
+source ~/projects/bash_adfs/aws_auth.sh  
+```
 
 ## Todo
-  - Build a docker container so that we dont have to worry about dependencies
+  - Have an option to run it on a docker container
   - Add support for MFA
-  - I know.. I could do it in python or other languages, the main reason for bash is that I can export the environment variables directly and start using the aws cli without having to think about profiles, however I will be adding a python version in the near future.
-  - Pull requests are more than welcome
+  - Pull requests are welcome

@@ -5,6 +5,19 @@
 # Your credentials will be exported into your current session as aws environment variables
 #############################################################################################
 
+provider="urn:amazon:webservices"
+
+##Get current OS user
+currentIdpUser=${idpUser:-$(whoami)}
+#AD FS end point
+idpHost=${idpHost:-exampleadfs.com}
+idpUser=${currentIdpUser}
+idpDomain=${idpDomain:-yourADDomain}
+defaultRegion=${defaultRegion:-ap-southeast-2}
+#Validate ssl certificate on endpoint, set it to false on dev environments against self signed certificates
+validatessl=false
+# Set ENDPOINT for ADFS authentication
+endPoint="https://${idpHost}/adfs/ls/IdpInitiatedSignOn.aspx?loginToRp=${provider}"
 
 function aws_get_account_alias() {
   #If you want to give accounts custom names just add them below as per the example list
@@ -25,72 +38,55 @@ function aws_get_account_alias() {
 
 function aws_auth() {
   unset AWS_DEFAULT_REGION
-  local provider="urn:amazon:webservices"
-
-  ##Get current OS user
-  CURRENT_IDPUSER=${IDPUSER:-$(whoami)}
-  #AD FS end point
-  IDPHOST=${IDPHOST:-exampleadfs.com}
-  IDPUSER=${CURRENT_IDPUSER}
-  IDPDOMAIN=${IDPDOMAIN:-yourADDomain}
-  DEFAULT_REGION=${DEFAULT_REGION:-ap-southeast-2}
-
-  #Validate ssl certificate on endpoint, set it to false on dev environments against self signed certificates
-  VALIDATESSL=false
-
-  # Set ENDPOINT for ADFS authentication
-  ENDPOINT="https://${IDPHOST}/adfs/ls/IdpInitiatedSignOn.aspx?loginToRp=${provider}"
-
   roles=""
 
-  if $VALIDATESSL ; then
+  if $validatessl ; then
       ssl_param=""
   else
       ssl_param="--no-check-certificate"
   fi
 
   # create temporary file to store ADFS request call
-  TMP=$(mktemp /tmp/adfs.XXXX)
+  tmp=$(mktemp /tmp/adfs.XXXX)
 
-  echo "** Authenticating against ADFS server: $IDPHOST (if wrong, set IDPHOST) **"
+  echo "** Authenticating against ADFS server: $idpHost (if wrong, set idpHost) **"
 
   # Ask for username allowing default OS user
-  read -p "Username or press enter for default (${IDPUSER}) : " IDPUSER
-  [[ -z "$IDPUSER" ]] && IDPUSER=${CURRENT_IDPUSER}
+  read -p "Username or press enter for default (${idpUser}) : " idpUser
+  [[ -z "$idpUser" ]] && idpUser=${currentIdpUser}
 
   # ask for AD password
-  read -s -p "Password for ${IDPDOMAIN}\\${IDPUSER} : " IDPPASSWD
-  #read -s -p "Password for ${IDPUSER} : " IDPPASSWD
+  read -s -p "Password for ${idpDomain}\\${idpUser} : " idpPasswd
   echo
   ## ensure username / password don't show in process list
-  CREDS=$(mktemp /tmp/adfs.c.XXXX)
-  cat << EOF > $CREDS
-UserName=${IDPDOMAIN}%5C${IDPUSER}&Password=${IDPPASSWD}&AuthMethod=FormsAuthentication
+  creds=$(mktemp /tmp/adfs.c.XXXX)
+  cat << EOF > $creds
+userName=${idpDomain}%5C${idpUser}&Password=${idpPasswd}&AuthMethod=FormsAuthentication
 EOF
-  unset IDPPASSWD
+  unset idpPasswd
 
   ## Authenticate against ADFS
-  wget -q  $ssl_param --post-file="${CREDS}" ${ENDPOINT} -O $TMP
+  wget -q $ssl_param --post-file="${creds}" ${endPoint} -O $tmp
   wget_code=$?
-  rm -f $CREDS
+  rm -f $creds
 
   if [ $wget_code -ne 0 ]; then
-    echo "Error trying to authenticate against $IDPHOST" >&2
-  elif grep -q -i "Sign In" $TMP
+    echo "Error trying to authenticate against $idpHost" >&2
+  elif grep -q -i "Sign In" $tmp
   then
     echo "Authentication Failed" >&2
   else
     # Search for SAMLResponse element on xml response
-    SAMLResponse=$(xmllint --xpath "string(/html/body/form/*[@name='SAMLResponse']/@value)" $TMP)
-    echo $SAMLResponse | base64 --decode > $TMP
+    SAMLResponse=$(xmllint --xpath "string(/html/body/form/*[@name='SAMLResponse']/@value)" $tmp)
+    echo $SAMLResponse | base64 --decode > $tmp
 
     # Check how many roles have been created on AD (Ad groups) from the response
-    count=$(xmllint --xpath 'count(//*[@Name="https://aws.amazon.com/SAML/Attributes/Role"]/*)' $TMP)
+    count=$(xmllint --xpath 'count(//*[@Name="https://aws.amazon.com/SAML/Attributes/Role"]/*)' $tmp)
 
     # Walk the roles and store them in roles variable together with the saml response
     for i in $(seq 1 $count)
     do
-      roles="$roles\n$(xmllint --xpath '(//*[@Name="https://aws.amazon.com/SAML/Attributes/Role"]/*)['${i}']/text()' $TMP)"
+      roles="$roles\n$(xmllint --xpath '(//*[@Name="https://aws.amazon.com/SAML/Attributes/Role"]/*)['${i}']/text()' $tmp)"
     done
 
     roles=$(echo -e $roles | sort -t ':' -k 5,12 | uniq | sed '/^[[:space:]]*$/d' | grep -v `aws_get_account_alias`)
@@ -128,7 +124,7 @@ EOF
     then
       select_role=$(echo -e $roles)
     else
-      echo "error: no roles found. Ensure you're in the right groups on $IDPHOST (AD replication might take some time...)"
+      echo "error: no roles found. Ensure you're in the right groups on $idpHost (AD replication might take some time...)"
       return
     fi
 
@@ -149,9 +145,9 @@ EOF
       export AWS_ACCESS_KEY_ID="$(echo $credentials | jq '.Credentials.AccessKeyId' | sed 's/"//g')"
       export AWS_SECRET_ACCESS_KEY="$(echo $credentials | jq '.Credentials.SecretAccessKey' | sed 's/"//g')"
       export AWS_SESSION_TOKEN="$(echo $credentials | jq '.Credentials.SessionToken' | sed 's/"//g')"
-      export AWS_USER_ID=${IDPUSER}
+      export AWS_USER_ID=${idpUser}
       export AWS_ACCOUNT=$account
-      export AWS_DEFAULT_REGION=$DEFAULT_REGION
+      export AWS_DEFAULT_REGION=$defaultRegion
       echo "-----------------------------------------------------------------------------"
       echo "Your Aws credentials have been exported, you can now start using the AWS cli"
       echo "-----------------------------------------------------------------------------"
